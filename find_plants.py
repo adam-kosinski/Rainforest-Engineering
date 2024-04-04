@@ -1,6 +1,8 @@
 """
 This is a one-file implementation of pipeline_v3, for ease of use.
-Note: not using dist_to_side factor in the prominence function, unlike pipeline_v3.ipynb.
+Some changes:
+- not using dist_to_side factor in the prominence function, doesn't really seem to matter
+- process_image() returns bboxes (for the full res image), visualization is done by _____
 
 TO USE IN A JUPYTER NOTEBOOK:
 
@@ -15,6 +17,7 @@ import numpy as np
 from PIL import Image
 import cv2
 import os
+import json
 import logging
 from contextlib import nullcontext  # for if not saving to pdf
 
@@ -61,6 +64,8 @@ def load_models():
     models["DepthAnything"] = {"model": depth_model, "processor": depth_processor}
     print("DepthAnything Loaded")
 
+    return models
+
 
 
 
@@ -81,14 +86,20 @@ def load_image(path):
 
 
 
-def process_image(image_path, models, show_steps=True, pdf_savepath=None):
+def process_image(image_path, models, show_steps=True, output_json_file=None):
+    """Returns a list of bboxes, with ClipSeg flower results first, and then sorted by prominence.
+    Each bbox is a list with 4 numbers: X Y width height.
+    Also saves this list of bboxes to a json file, if the json file is specified, appending on to what exists already.
+    """
+
     # load image
     image, full_res_image = load_image(image_path)
-    show(image, title="Input Image")
+    if show_steps:
+        show(image, title="Input Image")
 
     # find flowers using clipseg
     clip_prompts = ["flower", "leaf", "sky", "rock", "dirt", "animal", "person", "human being"]
-    flower_bboxs = find_objects(image, models["ClipSeg"]["processor"], models["ClipSeg"]["model"],
+    flower_bboxes = find_objects(image, models["ClipSeg"]["processor"], models["ClipSeg"]["model"],
                                  clip_prompts, target_prompt="flower", display_results=show_steps,
                                  logit_threshold=0.25)  # this threshold seems to work fine
 
@@ -116,44 +127,55 @@ def process_image(image_path, models, show_steps=True, pdf_savepath=None):
     if show_steps:
         show(image, mask_data[:10], title="Top 10 Most Prominent Masks")
 
-    # create list of proposed bboxs
-    selected_mask_data = mask_data[:10]
-    bboxs = flower_bboxs + [mask_object["bbox"] for mask_object in selected_mask_data]
+    # combine clipseg bboxes with MobileSAM bboxes
+    initial_bboxes = flower_bboxes + [mask_object["bbox"] for mask_object in mask_data]
 
-    # filter out super tiny bboxs
-    min_bbox_area = 2500
-    bboxs = list(filter(lambda x: x[2] * x[3] >= min_bbox_area, bboxs))
-    # filter out duplicate bboxs (ClipSeg flower bboxes might be duplicates of SAM bboxes)
-    bboxs = deduplicate_boxes(bboxs, iou_threshold=0.25)
-    # filter out non plant bboxs
-    plant_bboxs = []
-    for box in bboxs:
-        # use full res crop for classification, it works better
-        full_res_box = (np.array(box) *
-                    full_res_image.shape[0] / image.shape[0]).astype(int)
-        crop = get_crop(full_res_box, full_res_image)
+    # BBOX processing -----------------------------------------------
+    # convert to full resolution image bboxes
+    scale_factor = full_res_image.shape[0] / image.shape[0]
+    bboxes = [(np.array(box) * scale_factor).astype(int).tolist() for box in initial_bboxes]
+    # filter out duplicate bboxes (ClipSeg flower bboxes might be duplicates of SAM bboxes)
+    bboxes = deduplicate_boxes(bboxes, iou_threshold=0.25)
+    # filter out super tiny bboxes
+    min_bbox_area = 10000
+    bboxes = list(filter(lambda x: x[2] * x[3] >= min_bbox_area, bboxes))
+    # filter out non plant bboxes
+    plant_bboxes = []
+    for box in bboxes:
+        crop = get_crop(box, full_res_image)
         crop_class = classify(crop, models["CLIP"]["processor"], models["CLIP"]["model"], ["plant", "sky", "dirt", "human", "rock", "water", "vehicle"])
         if show_steps:
             show(crop, title=crop_class)
         if crop_class == "plant":
-            plant_bboxs.append(box)
-    bboxs = plant_bboxs
+            plant_bboxes.append(box)
+
+    # save to json file
+    if output_json_file:
+        existing_json = {}
+        # check if data already exists in the output file, and if so, add on to it
+        if os.path.exists(output_json_file):
+            with open(output_json_file) as file:
+                existing_json = json.load(file)
+        # add this image's results
+        existing_json[image_path] = plant_bboxes
+        # save
+        with open(output_json_file, mode='w') as file:
+            json.dump(existing_json, file, sort_keys=True, indent=2)
+
+    return plant_bboxes
 
     # generate output visualization
-    with PdfPages(pdf_savepath) if pdf_savepath else nullcontext() as pdf:
-        # pdf will equal None if we aren't saving
-        if pdf_savepath:
-            plt.figure(figsize=(9,9))
-            plt.title("Original Image")
-            plt.imshow(full_res_image)
-            plt.axis('off')
-            plt.savefig(pdf, format='pdf')
-            plt.close()  # don't show this image in the notebook, only for the PDF
-        for bbox in bboxs:
-            plot_crops(bbox, image, full_res_image, zoom_factor=3, pdf_file_object=pdf)
-
-
-
+    # with PdfPages(pdf_savepath) if pdf_savepath else nullcontext() as pdf:
+    #     # pdf will equal None if we aren't saving
+    #     if pdf_savepath:
+    #         plt.figure(figsize=(9,9))
+    #         plt.title("Original Image")
+    #         plt.imshow(full_res_image)
+    #         plt.axis('off')
+    #         plt.savefig(pdf, format='pdf')
+    #         plt.close()  # don't show this image in the notebook, only for the PDF
+    #     for bbox in bboxes:
+    #         plot_crops(bbox, image, full_res_image, zoom_factor=3, pdf_file_object=pdf)
 
 
 
@@ -262,7 +284,7 @@ def find_objects(np_image, clipseg_processor, clipseg_model, prompts, target_pro
     target_logits_square = torch.sigmoid(preds[target_prompt_idx][0]).numpy()
     target_logits = cv2.resize(target_logits_square, (image.width, image.height))
     
-    bboxs = get_bounding_boxes(target_logits, logit_threshold)
+    bboxes = get_bounding_boxes(target_logits, logit_threshold)
 
     # display
     if display_results:
@@ -271,11 +293,11 @@ def find_objects(np_image, clipseg_processor, clipseg_model, prompts, target_pro
         plt.title(f"Found objects for prompt: {target_prompt}")
         plt.imshow(image)
         plt.imshow(target_logits, vmin=0, vmax=1, alpha=0.5)
-        for bbox in bboxs:
+        for bbox in bboxes:
             x,y,w,h = bbox
             plt.gca().add_patch(plt.Rectangle((x, y), w, h, edgecolor='red', facecolor=(0,0,0,0), lw=1))
     
-    return bboxs
+    return bboxes
 
 
 def get_bounding_boxes(heatmap, logit_threshold=0.25):
@@ -292,13 +314,13 @@ def get_bounding_boxes(heatmap, logit_threshold=0.25):
     # thresholded = cv2.threshold((255*sigmoid_logits).astype("uint8"), 128, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
 
     # get contours / bounding boxes
-    bboxs = []
+    bboxes = []
     contours = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = contours[0] if len(contours) == 2 else contours[1]
     for c in contours:
-        bboxs.append(cv2.boundingRect(c)) # x,y,w,h
+        bboxes.append(cv2.boundingRect(c)) # x,y,w,h
     
-    return bboxs
+    return bboxes
 
 
 
@@ -513,12 +535,9 @@ def get_crop(box, image, padding_frac=0):
     return image[y1:y2, x1:x2]
 
 
-def plot_crops(base_box, image, full_res_image=None, zoom_factor=3, pdf_file_object=None):
+def plot_crops(base_box, image, zoom_factor=3, show_crops=True, pdf_file_object=None, crops_save_directory=None):
     # base_box is xywh
-    # if you provide full_res_image, crops will use it instead
-    # still need main image so we can interpret bbox coords
-
-    image_to_crop = image
+    # zoom factor is how much you zoom out each time
 
     # ensure one dimension is not too much longer than the other
     max_aspect_ratio = 3
@@ -530,14 +549,9 @@ def plot_crops(base_box, image, full_res_image=None, zoom_factor=3, pdf_file_obj
         # print("making wider")
     base_box = clamp_box_to_image(base_box, image)
 
-    if full_res_image is not None:
-        # print("Using full_res_image for crops")
-        base_box = (np.array(base_box) *
-                    full_res_image.shape[0] / image.shape[0]).astype(int)
-        image_to_crop = full_res_image
-
-    # do crop of the object
-    crops = [get_crop(base_box, image_to_crop)]
+    # we have two lists - one to store actual crops of the image, and one to store where the crop came from
+    # storing where each crop came from is necessary for drawing the bounding box of the smallest crop in a larger crop
+    crops = [get_crop(base_box, image)]
     crop_boxes = [base_box]  # so we can draw the box on the zoomed out images
 
     # when zooming out, do so on a square box containing the mask bbox
@@ -548,30 +562,30 @@ def plot_crops(base_box, image, full_res_image=None, zoom_factor=3, pdf_file_obj
         # stop zooming out if we're nearing the image dimensions
         # if the max dimension is almost the whole image, we hit image size
         # if the min dimension is an appreciable fraction, the next zoom won't do much
-        x_frac = crops[-1].shape[1] / image_to_crop.shape[1]
-        y_frac = crops[-1].shape[0] / image_to_crop.shape[0]
+        x_frac = crops[-1].shape[1] / image.shape[1]
+        y_frac = crops[-1].shape[0] / image.shape[0]
         if len(crops) > 0 and (min(x_frac, y_frac) > 0.5 or max(x_frac, y_frac) > 0.8):
             break
 
-        box = scale_and_clamp_box(square_box, image_to_crop, zoom_factor**z)
-        crops.append(get_crop(box, image_to_crop))
+        box = scale_and_clamp_box(square_box, image, zoom_factor**z)
+        crops.append(get_crop(box, image))
         crop_boxes.append(box)
 
     # plot
-    plt.figure(figsize=(9, 3))
-    for k, c in enumerate(crops):
-        axis = plt.subplot(1, len(crops), k+1)
-        axis.imshow(c)
-        axis.axis("off")
+    pdf_fig, pdf_axes = plt.subplots(nrows=1, ncols=len(crops), figsize=(9, 3))
+    for k, crop in enumerate(crops):
+        pdf_axes[k].imshow(crop)
+        pdf_axes[k].axis("off")
 
-        # show bounding box
+        # show bounding box if this is a zoom out image
         if k >= 1:
             x = base_box[0] - crop_boxes[k][0]
             y = base_box[1] - crop_boxes[k][1]
-            axis.add_patch(plt.Rectangle(
-                (x, y), base_box[2], base_box[3], edgecolor='red', facecolor=(0, 0, 0, 0), lw=1))
-
-    plt.tight_layout()
+            pdf_axes[k].add_patch(plt.Rectangle((x, y), base_box[2], base_box[3], edgecolor='red', facecolor=(0, 0, 0, 0), lw=2))
+            
+    pdf_fig.tight_layout()
     if pdf_file_object is not None:
-        plt.savefig(pdf_file_object, format='pdf')
-    plt.show()
+        pdf_fig.savefig(pdf_file_object, format='pdf')
+    
+    if show_crops:
+        plt.show()
