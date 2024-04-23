@@ -101,7 +101,7 @@ def process_image(image_path, models, show_steps=True, output_json_file=None):
     clip_prompts = ["flower", "leaf", "sky", "rock", "dirt", "animal", "person", "human being"]
     flower_bboxes = find_objects(image, models["ClipSeg"]["processor"], models["ClipSeg"]["model"],
                                  clip_prompts, target_prompt="flower", display_results=show_steps,
-                                 logit_threshold=0.25)  # this threshold seems to work fine
+                                 logit_threshold=0.4)  # this threshold seems to work fine
 
     # get segmentation masks
     mask_data, unfiltered_mask_data = get_masks(image, models["MobileSAM"]["model"])
@@ -143,24 +143,26 @@ def process_image(image_path, models, show_steps=True, output_json_file=None):
     plant_bboxes = []
     for box in bboxes:
         crop = get_crop(box, full_res_image)
-        crop_class = classify(crop, models["CLIP"]["processor"], models["CLIP"]["model"], ["plant", "sky", "dirt", "human", "rock", "water", "vehicle"])
-        if show_steps:
-            show(crop, title=crop_class)
-        if crop_class == "plant":
+        crop_class = classify(crop, models["CLIP"]["processor"], models["CLIP"]["model"], ["plant", "flower", "fruit", "sky", "dirt", "human", "rock", "water", "vehicle"])
+        is_a_plant = crop_class in ["plant", "flower", "fruit"]
+        if is_a_plant:
             plant_bboxes.append(box)
+        if show_steps:
+            show(crop, title=f"{crop_class} - {'keeping' if is_a_plant else 'rejecting'}")
 
     # save to json file
     if output_json_file:
-        existing_json = {}
+        existing_json = []
         # check if data already exists in the output file, and if so, add on to it
         if os.path.exists(output_json_file):
             with open(output_json_file) as file:
                 existing_json = json.load(file)
         # add this image's results
-        existing_json[image_path] = plant_bboxes
+        existing_json.append({'image_path': image_path, 'bboxes': plant_bboxes})
         # save
         with open(output_json_file, mode='w') as file:
-            json.dump(existing_json, file, sort_keys=True, indent=2)
+            # don't sort the json, so that the order of interest is preserved
+            json.dump(existing_json, file, indent=2)
 
     return plant_bboxes
 
@@ -300,7 +302,7 @@ def find_objects(np_image, clipseg_processor, clipseg_model, prompts, target_pro
     return bboxes
 
 
-def get_bounding_boxes(heatmap, logit_threshold=0.25):
+def get_bounding_boxes(heatmap, logit_threshold=0.4):
     # heatmap should range from 0 to 1
     assert np.min(heatmap) >= 0 and np.max(heatmap) <= 1, "Heatmap values should range from 0 to 1"
 
