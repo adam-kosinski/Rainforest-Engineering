@@ -7,16 +7,12 @@ from PyQt6.QtCore import Qt, QPoint, QRect, QTimer
 
 import shutil
 
-import numpy as np
-
 IMAGE_DISPLAY_HEIGHT = 450
+
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-
-        # Calculate the absolute path of the current working directory
-        self.current_working_directory = os.getcwd()
 
         self.setWindowTitle("Image Selector")
         self.resize(1000, 800)  # Set initial window size
@@ -45,7 +41,6 @@ class MainWindow(QMainWindow):
         image_layout = QHBoxLayout()
         image_layout.addWidget(self.image_label)
         image_layout.addWidget(self.small_image_label)
-        image_layout.addStretch(1)
         main_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
 
         # Next button at the bottom
@@ -97,7 +92,7 @@ class MainWindow(QMainWindow):
 
             # load bounding boxes (aka red frames) both at original scale and at display scale
             # display scale will be used for drawing, and comparison with the mouse position
-            self.red_frame_params = image_info["bboxes"][:10]
+            self.red_frame_params = image_info["bboxes"][:5]
             original_image_height = self.image_pixmap.height()
             rescale_func = lambda x: int(x * IMAGE_DISPLAY_HEIGHT / original_image_height)
             self.display_red_frame_params = list(map(lambda box: list(map(rescale_func, box)), self.red_frame_params))
@@ -121,7 +116,7 @@ class MainWindow(QMainWindow):
 
             # Create an overlay pixmap that darkens the non selected areas
             overlay_pixmap = QPixmap(image_pixmap.size())
-            overlay_pixmap.fill(QColor(0, 0, 0, 192))
+            overlay_pixmap.fill(QColor(0, 0, 0, 170))
             overlay_painter = QPainter(overlay_pixmap)
             # change composition mode and opacity so that new rects will be drawn transparent and replace existing pixels
             overlay_painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
@@ -138,9 +133,13 @@ class MainWindow(QMainWindow):
             painter.drawPixmap(display_pixmap.rect(), overlay_pixmap, overlay_pixmap.rect())
             # Draw red frames
             for i, frame_params in enumerate(self.display_red_frame_params):
-                stroke_color = QColor("orange") if i == self.hovered_red_frame_index else QColor("red")
-                stroke_width = 4 if i == self.hovered_red_frame_index else 2
-                pen = QPen(stroke_color, stroke_width)
+                # determine which pen to use - different for hovering, selected, and deselected
+                if i == self.hovered_red_frame_index:
+                    pen = QPen(QColor("orange"), 4)
+                elif i in self.selected_frame_indices:
+                    pen = QPen(QColor("red"), 2)
+                else:
+                    pen = QPen(QColor("red"), 2, Qt.PenStyle.DotLine)
                 painter.setPen(pen)
                 painter.drawRect(*frame_params)
             painter.end()
@@ -157,7 +156,7 @@ class MainWindow(QMainWindow):
         red_frame = self.red_frame_params[red_frame_index]
         small_pixmap = self.image_pixmap.copy(*red_frame)
         # Scale to a reasonable size
-        small_pixmap = small_pixmap.scaled(300, IMAGE_DISPLAY_HEIGHT, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+        small_pixmap = small_pixmap.scaled(400, IMAGE_DISPLAY_HEIGHT, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         self.small_image_label.setPixmap(small_pixmap)
 
     def show_next_image(self):
