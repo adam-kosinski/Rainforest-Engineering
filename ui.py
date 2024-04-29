@@ -2,7 +2,7 @@ import os
 import sys
 import json
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QProgressBar
-from PyQt6.QtGui import QPixmap, QImage, QBitmap, QFont, QPainter, QPen, QColor, QCursor
+from PyQt6.QtGui import QPixmap, QFont, QPainter, QPen, QColor, QCursor
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer
 
 import shutil
@@ -36,11 +36,10 @@ class MainWindow(QMainWindow):
         self.image_label = QLabel()
         self.image_label.setFixedHeight(IMAGE_DISPLAY_HEIGHT)  # Fix image height
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align image to the left
-        self.original_image_height = None  # placeholder, will be an int
+        self.image_label.mousePressEvent = self.handle_image_click
 
         # Small image right-aligned
         self.small_image_label = QLabel()
-        # self.small_image_label.setMaximumSize(300, IMAGE_DISPLAY_HEIGHT)
 
         # Create horizontal layout for large and small images
         image_layout = QHBoxLayout()
@@ -78,7 +77,10 @@ class MainWindow(QMainWindow):
         self.mouse_timer = QTimer()
         self.mouse_timer.timeout.connect(self.track_mouse_position)
         self.mouse_timer.start(50)  # Set interval to 50 milliseconds, approximately 20 frames per second
+
+        # Selection stuff
         self.hovered_red_frame_index = None
+        self.selected_frame_indices = []
 
         # Read data from json file
         with open("output.json", "r") as f:
@@ -93,12 +95,15 @@ class MainWindow(QMainWindow):
             self.image_path = image_info["image_path"]
             self.image_pixmap = QPixmap(image_info["image_path"])
 
-            # load bounding boxes both at original scale and at display scale
+            # load bounding boxes (aka red frames) both at original scale and at display scale
             # display scale will be used for drawing, and comparison with the mouse position
             self.red_frame_params = image_info["bboxes"][:10]
             original_image_height = self.image_pixmap.height()
             rescale_func = lambda x: int(x * IMAGE_DISPLAY_HEIGHT / original_image_height)
             self.display_red_frame_params = list(map(lambda box: list(map(rescale_func, box)), self.red_frame_params))
+
+            # by default, all frames are selected
+            self.selected_frame_indices = list(range(len(self.red_frame_params)))
 
             self.current_image_index = index
             self.update_progress_bar()
@@ -116,13 +121,14 @@ class MainWindow(QMainWindow):
 
             # Create an overlay pixmap that darkens the non selected areas
             overlay_pixmap = QPixmap(image_pixmap.size())
-            overlay_pixmap.fill(QColor(0, 0, 0, 128))
+            overlay_pixmap.fill(QColor(0, 0, 0, 192))
             overlay_painter = QPainter(overlay_pixmap)
+            # change composition mode and opacity so that new rects will be drawn transparent and replace existing pixels
             overlay_painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
             overlay_painter.setOpacity(0.0)
-            for x,y,w,h in self.display_red_frame_params:
-                overlay_painter.fillRect(x, y, w, h, Qt.GlobalColor.black)
-                # overlay_painter.eraseRect(x, y, w, h)
+            for i, (x,y,w,h) in enumerate(self.display_red_frame_params):
+                if i in self.selected_frame_indices:
+                    overlay_painter.fillRect(x, y, w, h, Qt.GlobalColor.black)
             overlay_painter.end()
 
             # Use a QPainter to draw on the pixmap, draw the image and the darkener overlay
@@ -130,7 +136,6 @@ class MainWindow(QMainWindow):
             painter = QPainter(display_pixmap)
             painter.drawPixmap(display_pixmap.rect(), image_pixmap, image_pixmap.rect())
             painter.drawPixmap(display_pixmap.rect(), overlay_pixmap, overlay_pixmap.rect())
-
             # Draw red frames
             for i, frame_params in enumerate(self.display_red_frame_params):
                 stroke_color = QColor("orange") if i == self.hovered_red_frame_index else QColor("red")
@@ -138,9 +143,7 @@ class MainWindow(QMainWindow):
                 pen = QPen(stroke_color, stroke_width)
                 painter.setPen(pen)
                 painter.drawRect(*frame_params)
-
             painter.end()
-            print(np.random.randint(0, 10))
 
             # Display image with red frames drawn
             self.image_label.setPixmap(display_pixmap)
@@ -207,6 +210,12 @@ class MainWindow(QMainWindow):
 
         # Update the zoom in view
         self.show_zoom_in_image(self.hovered_red_frame_index)
+    
+    def handle_image_click(self, event):
+        if self.hovered_red_frame_index in self.selected_frame_indices:
+            self.selected_frame_indices.remove(self.hovered_red_frame_index)
+        else:
+            self.selected_frame_indices.append(self.hovered_red_frame_index)
 
 
 if __name__ == "__main__":
