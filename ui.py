@@ -4,8 +4,7 @@ import json
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QProgressBar
 from PyQt6.QtGui import QPixmap, QFont, QPainter, QPen, QColor, QCursor
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer
-
-import shutil
+from generate_crops import create_zoom_out_crops
 
 IMAGE_DISPLAY_HEIGHT = 450
 
@@ -43,21 +42,14 @@ class MainWindow(QMainWindow):
         image_layout.addWidget(self.small_image_label)
         main_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
 
-        # Save button at the bottom
-        save_button = QPushButton("SAVE ZOOM SEQUENCES")
-        save_button.setFixedSize(300, 50)
-        save_button.setFont(QFont("Arial", 12))  # Increase font size
-        save_button.clicked.connect(self.save_zoom_sequences)
-
         # Next button at the bottom
-        next_button = QPushButton("NEXT")
-        next_button.setFixedSize(150, 50)
+        next_button = QPushButton("SAVE AND NEXT")
+        next_button.setFixedSize(300, 50)
         next_button.setFont(QFont("Arial", 12))  # Increase font size
         next_button.clicked.connect(self.show_next_image)
 
         button_layout = QHBoxLayout()  # Use horizontal layout for buttons
         button_layout.addStretch(1)  # Add stretchable space before buttons
-        button_layout.addWidget(save_button)
         button_layout.addWidget(next_button)
         button_layout.addStretch(1)  # Add stretchable space after buttons
         main_layout.addLayout(button_layout)
@@ -169,6 +161,8 @@ class MainWindow(QMainWindow):
         self.small_image_label.setPixmap(small_pixmap)
 
     def show_next_image(self):
+        self.save_zoom_sequences()
+
         self.current_image_index += 1
         if self.current_image_index >= len(self.data):
             self.current_image_index = 0
@@ -226,8 +220,14 @@ class MainWindow(QMainWindow):
             self.selected_frame_indices.append(self.hovered_red_frame_index)
     
     def save_zoom_sequences(self):
-        print("saving")
-        pass
+        image_name = os.path.splitext(os.path.basename(self.image_path))[0]
+        save_directory = f"./zoom_outputs/{image_name}"
+        boxes_to_save = []
+        for i, box in enumerate(self.red_frame_params):
+            if i in self.selected_frame_indices:
+                boxes_to_save.append(box)
+
+        create_zoom_out_crops(self.image_path, boxes_to_save, save_directory)
 
 
 if __name__ == "__main__":

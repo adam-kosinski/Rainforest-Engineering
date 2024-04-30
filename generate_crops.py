@@ -6,48 +6,60 @@ from PIL import Image
 
 # Generate and save crops
 
-def create_zoom_out_crops(image_path, base_box, save_directory, zoom_factor=3):
-    # base_box is xywh
-    # zoom factor is how much you zoom out each time
+def create_zoom_out_crops(image_path, boxes, save_directory, zoom_factor=3):
+    """Zooms out a few times, and saves each zoom level.
+
+    Args:
+        image_path: string, absolute path,
+        boxes: [[x, y, w, h], ...],
+        save_directory: string, directory name,
+        zoom_factor: int, how much you zoom out each time
+    """
 
     os.makedirs(save_directory, exist_ok=True)
 
     with Image.open(image_path).convert("RGB") as pil_image:
         image = np.array(pil_image)
+    
 
-    # ensure one dimension is not too much longer than the other
-    max_aspect_ratio = 3
-    if base_box[2] / base_box[3] > max_aspect_ratio:
-        base_box = expand_to_aspect_ratio(base_box, max_aspect_ratio)
-        # print("making taller")
-    elif base_box[2] / base_box[3] < 1/max_aspect_ratio:
-        base_box = expand_to_aspect_ratio(base_box, 1/max_aspect_ratio)
-        # print("making wider")
-    base_box = clamp_box_to_image(base_box, image)
+    # Loop over each object we are zooming out from
+    for box_index, base_box in enumerate(boxes):
 
-    # zoom out ----------------------------
+        # ensure one dimension is not too much longer than the other
+        max_aspect_ratio = 3
+        if base_box[2] / base_box[3] > max_aspect_ratio:
+            base_box = expand_to_aspect_ratio(base_box, max_aspect_ratio)
+            # print("making taller")
+        elif base_box[2] / base_box[3] < 1/max_aspect_ratio:
+            base_box = expand_to_aspect_ratio(base_box, 1/max_aspect_ratio)
+            # print("making wider")
+        base_box = clamp_box_to_image(base_box, image)
 
-    # when zooming out, do so on a square box containing the mask bbox
-    # this provides a more standard zoom out in the case the bbox is a weird shape
-    square_box = expand_to_aspect_ratio(base_box, 1)
+        # zoom out ----------------------------
 
-    for z in [0, 1, 2]:
-        # get crop box, clamped to image
-        box = scale_and_clamp_box(square_box, image, zoom_factor**z)
-        overlay_box = None if z == 0 else base_box
-        
-        # take crop and save to file
-        image_basename = os.path.basename(image_path)
-        save_path = os.path.join(save_directory, f"{image_basename}_zoom{z}.png")
-        save_crop(box, image, save_path, overlay_box)
+        # when zooming out, do so on a square box containing the mask bbox
+        # this provides a more standard zoom out in the case the bbox is a weird shape
+        square_box = expand_to_aspect_ratio(base_box, 1)
 
-        # stop zooming out if we're nearing the image dimensions
-        # if the max dimension is almost the whole image, we hit image size
-        # if the min dimension is an appreciable fraction, the next zoom won't do much
-        x_frac = box[2] / image.shape[1]
-        y_frac = box[3] / image.shape[0]
-        if min(x_frac, y_frac) > 0.5 or max(x_frac, y_frac) > 0.8:
-            break
+        for z in [0, 1, 2]:
+            # get crop box, clamped to image, use square box if not lowest zoom level
+            if z == 0:
+                box = base_box
+            else:
+                box = scale_and_clamp_box(square_box, image, zoom_factor**z)
+            overlay_box = None if z == 0 else base_box
+            
+            # take crop and save to file
+            save_path = os.path.join(save_directory, f"plant{box_index}_zoom{z}.png")
+            save_crop(box, image, save_path, overlay_box)
+
+            # stop zooming out if we're nearing the image dimensions
+            # if the max dimension is almost the whole image, we hit image size
+            # if the min dimension is an appreciable fraction, the next zoom won't do much
+            x_frac = box[2] / image.shape[1]
+            y_frac = box[3] / image.shape[0]
+            if min(x_frac, y_frac) > 0.5 or max(x_frac, y_frac) > 0.8:
+                break
 
 
 def save_crop(box, image, save_path, overlay_box=None, padding_frac=0):
@@ -72,7 +84,7 @@ def save_crop(box, image, save_path, overlay_box=None, padding_frac=0):
         # translate overlay coords to be relative to this crop
         x = x - x1
         y = y - y1
-        line_width = max(1, int(0.002 * crop.shape[0]))
+        line_width = max(1, int(0.004 * crop.shape[0]))
         cv2.rectangle(crop, (x, y), (x+w, y+h), (0,0,255), thickness=line_width)
     
     cv2.imwrite(save_path, crop)
@@ -100,12 +112,14 @@ def expand_to_aspect_ratio(box, aspect_ratio):
         # need to make wider
         new_width = aspect_ratio * box[3]
         width_to_add = new_width - box[2]
-        return [box[0] - 0.5*width_to_add, box[1], box[2] + width_to_add, box[3]]
+        new_box = [box[0] - 0.5*width_to_add, box[1], box[2] + width_to_add, box[3]]
     else:
         # need to make taller
         new_height = box[2] / aspect_ratio
         height_to_add = new_height - box[3]
-        return [box[0], box[1] - 0.5*height_to_add, box[2], box[3] + height_to_add]
+        new_box = [box[0], box[1] - 0.5*height_to_add, box[2], box[3] + height_to_add]
+
+    return [int(a) for a in new_box]
 
 
 def scale_and_clamp_box(box, image, scale):
