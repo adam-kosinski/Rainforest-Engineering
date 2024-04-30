@@ -3,6 +3,7 @@ This is a one-file implementation of pipeline_v3, for ease of use.
 Some changes:
 - not using dist_to_side factor in the prominence function, doesn't really seem to matter
 - process_image() returns bboxes (for the full res image), visualization is done by functions in generate_crops.py
+- display of crops used for CLIP is smaller
 
 TO USE:
 
@@ -156,7 +157,7 @@ def process_image(image_path, models, show_steps=True, output_json_file=None):
         if is_a_plant:
             plant_bboxes.append(box)
         if show_steps:
-            show(crop, title=f"{crop_class} - {'keeping' if is_a_plant else 'rejecting'}")
+            show(crop, title=f"{crop_class} - {'keeping' if is_a_plant else 'rejecting'}", figsize=(4,3))
 
     # save to json file
     if output_json_file:
@@ -486,3 +487,13 @@ def deduplicate_boxes(boxs, iou_threshold=0.5):
             deduplicated_boxs.append(box)
 
     return deduplicated_boxs
+
+
+def get_crop(box, image):
+    # box is array formatted XYWH
+    # box is allowed to be outside the image bounds, this function will clamp
+    x1 = max(0, box[0])
+    x2 = min(image.shape[1], box[0] + box[2])
+    y1 = max(0, box[1])
+    y2 = min(image.shape[0], box[1] + box[3])
+    return image[y1:y2, x1:x2]

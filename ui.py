@@ -1,7 +1,7 @@
 import os
 import sys
 import json
-from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QProgressBar
+from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QPushButton, QWidget, QProgressBar, QFileDialog, QFrame
 from PyQt6.QtGui import QPixmap, QFont, QPainter, QPen, QColor, QCursor
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer
 from generate_crops import create_zoom_out_crops
@@ -15,12 +15,51 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Image Selector")
-        self.resize(1100, IMAGE_DISPLAY_HEIGHT + 150)  # Set initial window size
+        self.resize(1100, IMAGE_DISPLAY_HEIGHT + 240)  # Set initial window size
 
         main_layout = QVBoxLayout()
+        main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        central_widget = QWidget()
+        central_widget.setLayout(main_layout)
+        self.setCentralWidget(central_widget)
 
+        # json file selector
+        file_chooser_layout = QHBoxLayout()
+        file_chooser_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        json_file_chooser = QPushButton("Select JSON File From Pipeline Output")
+        json_file_chooser.clicked.connect(self.open_json_file_dialog)
+        file_chooser_layout.addWidget(json_file_chooser)
+        file_chooser_layout.addSpacing(5)
+        self.json_file_label = QLabel()
+        file_chooser_layout.addWidget(self.json_file_label)
+        main_layout.addLayout(file_chooser_layout)
+
+        # widget that starts as hidden, but once a json file is selected it is shown
+        # most of the UI stuff is its layout
+        self.when_loaded_widget = QWidget()
+        self.when_loaded_widget.hide()
+        when_loaded_layout = QVBoxLayout()
+        self.when_loaded_widget.setLayout(when_loaded_layout)
+        main_layout.addWidget(self.when_loaded_widget)
+
+        # save directory location
+        save_directory_layout = QHBoxLayout()
+        save_directory_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        # display
+        self.save_directory_label = QLabel()
+        save_directory_layout.addWidget(self.save_directory_label)
+        # button to change the save path
+        change_save_directory_button = QPushButton("Change")
+        change_save_directory_button.clicked.connect(self.open_save_directory_dialog)
+        save_directory_layout.addWidget(change_save_directory_button)
+        when_loaded_layout.addLayout(save_directory_layout)
+        horiz_line = QFrame()
+        horiz_line.setFrameShape(QFrame.Shape.HLine)
+        horiz_line.setFrameShadow(QFrame.Shadow.Sunken)
+        when_loaded_layout.addWidget(horiz_line)
+
+        # header indicating the current image with progress bar
         progress_layout = QHBoxLayout()
-
         # image name
         self.image_name_label = QLabel()
         self.image_name_label.setFont(QFont("Arial", 12))  # Increase font size
@@ -32,8 +71,14 @@ class MainWindow(QMainWindow):
         self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         progress_layout.addWidget(self.progress_bar)
         progress_layout.addStretch(1)
+        # add to main layout
+        when_loaded_layout.addLayout(progress_layout)
 
-        main_layout.addLayout(progress_layout)
+        # Instructions
+        instructions = QLabel("Hover over a box to see zoomed in view on the right. Click a box to toggle whether it is selected. Click 'SAVE AND NEXT' to generate zoom out sequences for all selected boxes, which are saved in the output directory shown above.")
+        instructions.setMaximumWidth(650)
+        instructions.setWordWrap(True)
+        when_loaded_layout.addWidget(instructions)
 
         # Large image left-aligned
         self.image_label = QLabel()
@@ -49,7 +94,7 @@ class MainWindow(QMainWindow):
         image_layout.addWidget(self.image_label)
         image_layout.addSpacing(10)
         image_layout.addWidget(self.small_image_label)
-        main_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
+        when_loaded_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
 
         # Back button
         back_button = QPushButton("BACK")
@@ -70,22 +115,22 @@ class MainWindow(QMainWindow):
         next_button.clicked.connect(lambda: self.show_next_image(save_crops=True))
 
         button_layout = QHBoxLayout()  # Use horizontal layout for buttons
+        button_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         button_layout.addWidget(back_button)
         button_layout.addSpacing(50)
         button_layout.addWidget(skip_button)
         button_layout.addWidget(next_button)
-        button_layout.addStretch(1)  # Add stretchable space after buttons
-        main_layout.addLayout(button_layout)
-
-        central_widget = QWidget()
-        central_widget.setLayout(main_layout)
-        self.setCentralWidget(central_widget)
+        # button_layout.addStretch(1)  # Add stretchable space after buttons
+        when_loaded_layout.addLayout(button_layout)
 
         # image variables
         self.image_files = []
         self.current_image_index = -1
         self.image_path = ""
         self.image_pixmap = None
+
+        # where to save crops
+        self.save_directory = ""
 
         # variables to store the bounding boxes
         self.red_frame_params = []  # original image coords
@@ -101,12 +146,30 @@ class MainWindow(QMainWindow):
         self.hovered_red_frame_index = None
         self.selected_frame_indices = []
 
-        # Read data from json file
-        with open("output.json", "r") as f:
-            self.data = json.load(f)
+        # Variable storing json data that came from running the pipeline
+        self.data = []
+        self.load_json_file("output.json")
+    
+    def open_json_file_dialog(self):
+        json_file, _ = QFileDialog.getOpenFileName(self, "Select JSON File From Pipeline Output", "", "JSON Files (*.json)")
+        if json_file:
+            self.load_json_file(json_file)
 
-        # Load information of the first element
-        self.load_image_info(0)
+    def load_json_file(self, json_file):
+        with open(json_file) as f:
+            self.data = json.load(f)
+        if len(self.data) > 0:
+            self.json_file_label.setText("Current JSON file -- " + os.path.abspath(json_file))
+            self.save_directory = os.path.join(os.getcwd(), "zoom_sequences")
+            self.save_directory_label.setText(f"Output directory -- {self.save_directory}")
+            self.load_image_info(0)
+            self.when_loaded_widget.show()
+    
+    def open_save_directory_dialog(self):
+        new_save_dir = QFileDialog.getExistingDirectory(self, "Select Folder To Save Crops In", "")
+        if new_save_dir:
+            self.save_directory = new_save_dir
+            self.save_directory_label.setText(f"Output directory -- {self.save_directory}")
 
     def load_image_info(self, index):
         if index < len(self.data):
@@ -186,30 +249,31 @@ class MainWindow(QMainWindow):
         self.small_image_label.setPixmap(small_pixmap)
 
     def show_next_image(self, save_crops=True):
+        if len(self.data) == 0:
+            return
         if save_crops:
             self.save_zoom_sequences()
         self.load_image_info((self.current_image_index + 1) % len(self.data))
 
     def show_previous_image(self):
+        if len(self.data) == 0:
+            return
         self.load_image_info((self.current_image_index - 1) % len(self.data))
 
-    def track_mouse_position(self):        
-        # Get mouse click position (relative to the window)
-        self.mouse_position = self.mapFromGlobal(QCursor.pos())
+    def track_mouse_position(self):
+        # Get mouse position (relative to the big image)
+        self.mouse_position = self.image_label.mapFromGlobal(QCursor.pos())
 
         # Store the indexes of red frames where mouse position is located
         inside_red_frames = []
 
         # Calculate the positions and ranges of red frames on the screen, and check if the mouse position is inside
         for index, red_frame_params in enumerate(self.display_red_frame_params):
-            # Position and size of red frame in the window
+            # Position and size of red frame in the big image
             red_frame_rect = QRect(*red_frame_params)
 
-            # Position and range of red frame on the screen
-            red_frame_screen_rect = red_frame_rect.translated(self.image_label.pos())
-
             # If mouse position is inside the red frame, add its index to the list
-            if red_frame_screen_rect.contains(self.mouse_position):
+            if red_frame_rect.contains(self.mouse_position):
                 inside_red_frames.append(index)
 
         # If mouse position is inside multiple red frames, select the one with the smallest area
@@ -234,7 +298,6 @@ class MainWindow(QMainWindow):
         
         # Update the main view (to show hovered box)
         self.show_image()
-
         # Update the zoom in view
         self.show_zoom_in_image(self.hovered_red_frame_index)
     
@@ -246,7 +309,7 @@ class MainWindow(QMainWindow):
     
     def save_zoom_sequences(self):
         image_name = os.path.splitext(os.path.basename(self.image_path))[0]
-        save_directory = f"./zoom_outputs/{image_name}"
+        save_directory = os.path.join(self.save_directory, image_name)
         boxes_to_save = []
         for i, box in enumerate(self.red_frame_params):
             if i in self.selected_frame_indices:
