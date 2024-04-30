@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
 
         # Variable storing json data that came from running the pipeline
         self.data = []
-        # self.load_json_file("output.json")
+        self.load_json_file("output.json")
     
     def open_json_file_dialog(self):
         json_file, _ = QFileDialog.getOpenFileName(self, "Select JSON File From Pipeline Output", "", "JSON Files (*.json)")

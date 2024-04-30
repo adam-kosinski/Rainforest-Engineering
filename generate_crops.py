@@ -1,7 +1,7 @@
 import os
 import cv2
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 
 # Generate and save crops
@@ -49,9 +49,10 @@ def create_zoom_out_crops(image_path, boxes, save_directory, zoom_factor=3):
                 box = scale_and_clamp_box(square_box, image, zoom_factor**z)
             overlay_box = None if z == 0 else base_box
             
-            # take crop and save to file
-            save_path = os.path.join(save_directory, f"plant{box_index}_zoom{z}.png")
-            save_crop(box, image, save_path, overlay_box)
+            # take crop and save to file - retain date and location stored in exif data
+            save_path = os.path.join(save_directory, f"plant{box_index}_zoom{z}.jpg")  # jpg supports exif data
+            exif_data = pil_image.info['exif'] if 'exif' in pil_image.info else None
+            save_crop(box, image, save_path, overlay_box, exif_data)
 
             # stop zooming out if we're nearing the image dimensions
             # if the max dimension is almost the whole image, we hit image size
@@ -62,9 +63,10 @@ def create_zoom_out_crops(image_path, boxes, save_directory, zoom_factor=3):
                 break
 
 
-def save_crop(box, image, save_path, overlay_box=None):
+def save_crop(box, image, save_path, overlay_box=None, exif_data=None):
     # box and overlay_box is array formatted XYWH
     # box is allowed to be outside the image bounds, this function will clamp
+    # copy over exif data if provided, to retain date and location
 
     x1 = max(0, box[0])
     x2 = min(image.shape[1], box[0] + box[2])
@@ -72,8 +74,8 @@ def save_crop(box, image, save_path, overlay_box=None):
     y2 = min(image.shape[0], box[1] + box[3])
     crop = image[y1:y2, x1:x2]
 
-    # convert to bgr for use with cv2
-    crop = cv2.cvtColor(crop, cv2.COLOR_RGB2BGR)
+    # convert to PIL image for drawing and copying exif data
+    pil_crop = Image.fromarray(crop)
 
     # add overlay
     if overlay_box is not None:
@@ -81,10 +83,16 @@ def save_crop(box, image, save_path, overlay_box=None):
         # translate overlay coords to be relative to this crop
         x = x - x1
         y = y - y1
-        line_width = max(1, int(0.004 * crop.shape[0]))
-        cv2.rectangle(crop, (x, y), (x+w, y+h), (0,0,255), thickness=line_width)
+        # make line width thicker in larger crops, so it is visible relative to the whole image
+        line_width = max(1, int(0.004 * pil_crop.size[1]))
+        # draw rectangle
+        draw = ImageDraw.Draw(pil_crop)
+        draw.rectangle([x, y, x+w, y+h], outline='red', width=line_width)
     
-    cv2.imwrite(save_path, crop)
+    if exif_data is not None:
+        pil_crop.save(save_path, 'JPEG', exif=exif_data)
+    else:
+        pil_crop.save(save_path)
 
 
 
