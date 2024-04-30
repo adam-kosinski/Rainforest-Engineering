@@ -19,14 +19,21 @@ class MainWindow(QMainWindow):
 
         main_layout = QVBoxLayout()
 
+        progress_layout = QHBoxLayout()
+
+        # image name
+        self.image_name_label = QLabel()
+        self.image_name_label.setFont(QFont("Arial", 12))  # Increase font size
+        progress_layout.addWidget(self.image_name_label)
+        progress_layout.addSpacing(10)
         # progress bar
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(20)  # Fix progress bar height to 20
-        self.progress_bar.setFixedWidth(800)   # Fix progress bar width to 800
-        progress_layout = QHBoxLayout()  # Progress bar layout
+        self.progress_bar.setFixedWidth(400)   # Fix progress bar width to 800
+        self.progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         progress_layout.addWidget(self.progress_bar)
+        progress_layout.addStretch(1)
 
-        main_layout.addLayout(progress_layout)  # Add progress bar layout
+        main_layout.addLayout(progress_layout)
 
         # Large image left-aligned
         self.image_label = QLabel()
@@ -40,6 +47,7 @@ class MainWindow(QMainWindow):
         # Create horizontal layout for large and small images
         image_layout = QHBoxLayout()
         image_layout.addWidget(self.image_label)
+        image_layout.addSpacing(10)
         image_layout.addWidget(self.small_image_label)
         main_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
 
@@ -117,6 +125,7 @@ class MainWindow(QMainWindow):
             self.selected_frame_indices = list(range(len(self.red_frame_params)))
 
             self.current_image_index = index
+            self.image_name_label.setText(f"Current image: {os.path.basename(self.image_path)}")
             self.update_progress_bar()
             self.show_image()
 
@@ -124,6 +133,7 @@ class MainWindow(QMainWindow):
         if self.data:
             progress_value = int((self.current_image_index + 1) / len(self.data) * 100)
             self.progress_bar.setValue(progress_value)
+            self.progress_bar.setFormat(f"Image {self.current_image_index + 1}/{len(self.data)}")
 
     def show_image(self):
         if self.current_image_index >= 0 and self.current_image_index < len(self.data):
@@ -178,12 +188,10 @@ class MainWindow(QMainWindow):
     def show_next_image(self, save_crops=True):
         if save_crops:
             self.save_zoom_sequences()
-        self.current_image_index = (self.current_image_index + 1) % len(self.data)
-        self.load_image_info(self.current_image_index)
+        self.load_image_info((self.current_image_index + 1) % len(self.data))
 
     def show_previous_image(self):
-        self.current_image_index = (self.current_image_index - 1) % len(self.data)
-        self.load_image_info(self.current_image_index)
+        self.load_image_info((self.current_image_index - 1) % len(self.data))
 
     def track_mouse_position(self):        
         # Get mouse click position (relative to the window)
