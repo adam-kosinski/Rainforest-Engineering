@@ -75,15 +75,14 @@ class MainWindow(QMainWindow):
         when_loaded_layout.addLayout(progress_layout)
 
         # Instructions
-        instructions = QLabel("Hover over a box to see zoomed in view on the right. Click a box to toggle whether it is selected. Click 'SAVE AND NEXT' to generate zoom out sequences for all selected boxes, which are saved in the output directory shown above.")
-        instructions.setMaximumWidth(650)
+        instructions = QLabel("Hover over a box to see zoomed in view on the right. Click a box to toggle whether it is selected (all are selected by default). Click 'SAVE AND NEXT' to generate zoom out sequences for all selected boxes, which are saved in the output directory shown above.")
+        instructions.setFixedSize(700, 50)
         instructions.setWordWrap(True)
         when_loaded_layout.addWidget(instructions)
 
         # Large image left-aligned
         self.image_label = QLabel()
         self.image_label.setFixedHeight(IMAGE_DISPLAY_HEIGHT)  # Fix image height
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align image to the left
         self.image_label.mousePressEvent = self.handle_image_click
 
         # Small image right-aligned
@@ -120,7 +119,6 @@ class MainWindow(QMainWindow):
         button_layout.addSpacing(50)
         button_layout.addWidget(skip_button)
         button_layout.addWidget(next_button)
-        # button_layout.addStretch(1)  # Add stretchable space after buttons
         when_loaded_layout.addLayout(button_layout)
 
         # image variables
@@ -148,7 +146,7 @@ class MainWindow(QMainWindow):
 
         # Variable storing json data that came from running the pipeline
         self.data = []
-        self.load_json_file("output.json")
+        # self.load_json_file("output.json")
     
     def open_json_file_dialog(self):
         json_file, _ = QFileDialog.getOpenFileName(self, "Select JSON File From Pipeline Output", "", "JSON Files (*.json)")

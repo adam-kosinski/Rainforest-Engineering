@@ -62,17 +62,14 @@ def create_zoom_out_crops(image_path, boxes, save_directory, zoom_factor=3):
                 break
 
 
-def save_crop(box, image, save_path, overlay_box=None, padding_frac=0):
+def save_crop(box, image, save_path, overlay_box=None):
     # box and overlay_box is array formatted XYWH
     # box is allowed to be outside the image bounds, this function will clamp
 
-    x_pad = int(np.round(box[2] * padding_frac))
-    y_pad = int(np.round(box[3] * padding_frac))
-
-    x1 = max(0, box[0] - x_pad)
-    x2 = min(image.shape[1], box[0] + box[2] + 2*x_pad)
-    y1 = max(0, box[1] - y_pad)
-    y2 = min(image.shape[0], box[1] + box[3] + 2*y_pad)
+    x1 = max(0, box[0])
+    x2 = min(image.shape[1], box[0] + box[2])
+    y1 = max(0, box[1])
+    y2 = min(image.shape[0], box[1] + box[3])
     crop = image[y1:y2, x1:x2]
 
     # convert to bgr for use with cv2

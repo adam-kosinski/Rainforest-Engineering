@@ -4,6 +4,9 @@ Some changes:
 - not using dist_to_side factor in the prominence function, doesn't really seem to matter
 - process_image() returns bboxes (for the full res image), visualization is done by functions in generate_crops.py
 - display of crops used for CLIP is smaller
+- deduplicate_bboxes() is different:
+    - for iou duplicates, it keeps the earlier-indexed one, to maintain flowers coming early in the bbox list
+    - it removes bboxes that are fully contained within a larger bbox (duplicate object in the scene), useful for if lots of tiny sub-objects were found
 
 TO USE:
 
@@ -111,6 +114,8 @@ def process_image(image_path, models, show_steps=True, output_json_file=None):
     flower_bboxes = find_objects(image, models["ClipSeg"]["processor"], models["ClipSeg"]["model"],
                                  clip_prompts, target_prompt="flower", display_results=show_steps,
                                  logit_threshold=0.4)  # this threshold seems to work fine
+    # sort flowers by size, largest first (prioritize largest two)
+    flower_bboxes.sort(key=lambda b: b[2] * b[3], reverse=True)
 
     # get segmentation masks
     mask_data, unfiltered_mask_data = get_masks(image, models["MobileSAM"]["model"])
@@ -136,18 +141,24 @@ def process_image(image_path, models, show_steps=True, output_json_file=None):
     if show_steps:
         show(image, mask_data[:10], title="Top 10 Most Prominent Masks")
 
-    # combine clipseg bboxes with MobileSAM bboxes
+    # combine clipseg bboxes with MobileSAM bboxes, prioritizing flowers (comes first)
     initial_bboxes = flower_bboxes + [mask_object["bbox"] for mask_object in mask_data]
 
     # BBOX processing -----------------------------------------------
+
     # convert to full resolution image bboxes
     scale_factor = full_res_image.shape[0] / image.shape[0]
     bboxes = [(np.array(box) * scale_factor).astype(int).tolist() for box in initial_bboxes]
+
     # filter out duplicate bboxes (ClipSeg flower bboxes might be duplicates of SAM bboxes)
+    # keep the earlier indexed bbox if there is a duplicate (to maintain flowers coming first)
+    # also remove boxes that are fully contained within other boxes
     bboxes = deduplicate_boxes(bboxes, iou_threshold=0.25)
+
     # filter out super tiny bboxes
     min_bbox_area = 10000
     bboxes = list(filter(lambda x: x[2] * x[3] >= min_bbox_area, bboxes))
+
     # filter out non plant bboxes
     plant_bboxes = []
     for box in bboxes:
@@ -174,20 +185,6 @@ def process_image(image_path, models, show_steps=True, output_json_file=None):
             json.dump(existing_json, file, indent=2)
 
     return plant_bboxes
-
-    # generate output visualization
-    # with PdfPages(pdf_savepath) if pdf_savepath else nullcontext() as pdf:
-    #     # pdf will equal None if we aren't saving
-    #     if pdf_savepath:
-    #         plt.figure(figsize=(9,9))
-    #         plt.title("Original Image")
-    #         plt.imshow(full_res_image)
-    #         plt.axis('off')
-    #         plt.savefig(pdf, format='pdf')
-    #         plt.close()  # don't show this image in the notebook, only for the PDF
-    #     for bbox in bboxes:
-    #         plot_crops(bbox, image, full_res_image, zoom_factor=3, pdf_file_object=pdf)
-
 
 
 
@@ -465,28 +462,49 @@ def iou(box1, box2):
     return intersection_area / union_area
 
 
-def deduplicate_boxes(boxs, iou_threshold=0.5):
-    # deduplicate list of boxs, using intersection over union to identify duplicates
-    # boxs are XYWH
-    # keep the larger box when there is a duplicate
+def deduplicate_boxes(boxes, iou_threshold=0.5):
+    # deduplicate list of boxes, using intersection over union to identify duplicates
+    # - also remove boxes fully contained in other boxes
+    # boxes are XYWH
+    # keep the earlier-indexed box when there is a duplicate
 
-    deduplicated_boxs = []
+    indexed_deduplicated_boxes = []
+
+    # sort boxes by largest first, but remember the order so we can undo this later
+    # doing largest first helps with testing if boxes contain each other
+    indexed_boxes = list(zip(range(len(boxes)), boxes))
+    indexed_boxes.sort(key=lambda pair: pair[1][2] * pair[1][3], reverse=True)  # pair[1] is the box
     
-    for box in boxs:
+    for i, box in indexed_boxes:
         is_duplicate = False
-        for i, existing_box in enumerate(deduplicated_boxs):
+        for k, (existing_i, existing_box) in enumerate(indexed_deduplicated_boxes):
             iou_value = iou(box, existing_box)
+            # check iou
             if iou_value >= iou_threshold:
                 is_duplicate = True
-                # keep the bigger of the two duplicates
-                if box[2] * box[3] > existing_box[2] * existing_box[3]:
-                    deduplicated_boxs[i] = box
+                # swap out the existing one if this one has a lower index (more prioritized)
+                if i < existing_i:
+                    indexed_deduplicated_boxes[k] = (i, box)
+                break
+            # check if contained in an existing bigger box (bigger because sorted by area)
+            if box_contains(existing_box, box):
+                is_duplicate = True
                 break
 
         if not is_duplicate:
-            deduplicated_boxs.append(box)
+            indexed_deduplicated_boxes.append((i, box))
 
-    return deduplicated_boxs
+    # undo the sorting and return
+    indexed_deduplicated_boxes = sorted(indexed_deduplicated_boxes, key=lambda pair: pair[0])  # pair[0] is the index
+    deduplicated_boxes = list(zip(*indexed_deduplicated_boxes))[1]
+    return list(deduplicated_boxes)
+
+
+def box_contains(box1, box2):
+    """Returns true if box1 entirely contains box2"""
+    x1, y1, w1, h1 = box1
+    x2, y2, w2, h2 = box2
+    return x1 <= x2 and y1 <= y2 and (x1 + w1) >= (x2 + w2) and (y1 + h1) >= (y2 + h2)
 
 
 def get_crop(box, image):
