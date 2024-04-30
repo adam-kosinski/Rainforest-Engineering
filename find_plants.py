@@ -22,7 +22,7 @@ import logging
 from contextlib import nullcontext  # for if not saving to pdf
 
 from mobile_sam import sam_model_registry, SamAutomaticMaskGenerator, SamPredictor
-from transformers import AutoImageProcessor, AutoModelForDepthEstimation, CLIPSegProcessor, CLIPSegForImageSegmentation, CLIPProcessor, CLIPModel
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, CLIPSegProcessor, CLIPSegForImageSegmentation, CLIPProcessor, CLIPModel, SamModel, SamProcessor
 
 
 
@@ -330,8 +330,8 @@ def get_bounding_boxes(heatmap, logit_threshold=0.4):
 # Mask generation and filtering
 
 
-def get_masks(np_image, mobile_sam_model):
-  mask_generator = SamAutomaticMaskGenerator(mobile_sam_model, stability_score_thresh=0.85, points_per_side=16)
+def get_masks(np_image, sam_model):
+  mask_generator = SamAutomaticMaskGenerator(sam_model, stability_score_thresh=0.85, points_per_side=16)
   unfiltered_mask_data = mask_generator.generate(np_image)
 
   # filter submasks and masks that can be broken up
@@ -520,26 +520,16 @@ def scale_and_clamp_box(box, image, scale):
 
 
 
-# Generate crops
+# Generate crops (not part of main pipeline)
 
-
-def get_crop(box, image, padding_frac=0):
-    # box is array formatted XYWH
-    # box is allowed to be outside the image bounds, this function will clamp
-
-    x_pad = int(np.round(box[2] * padding_frac))
-    y_pad = int(np.round(box[3] * padding_frac))
-
-    x1 = max(0, box[0] - x_pad)
-    x2 = min(image.shape[1], box[0] + box[2] + 2*x_pad)
-    y1 = max(0, box[1] - y_pad)
-    y2 = min(image.shape[0], box[1] + box[3] + 2*y_pad)
-    return image[y1:y2, x1:x2]
-
-
-def plot_crops(base_box, image, zoom_factor=3, show_crops=True, pdf_file_object=None, crops_save_directory=None):
+def create_zoom_out_crops(image_path, base_box, save_directory, zoom_factor=3):
     # base_box is xywh
     # zoom factor is how much you zoom out each time
+
+    os.makedirs(save_directory, exist_ok=True)
+
+    with Image.open(image_path).convert("RGB") as pil_image:
+        image = np.array(pil_image)
 
     # ensure one dimension is not too much longer than the other
     max_aspect_ratio = 3
@@ -551,43 +541,59 @@ def plot_crops(base_box, image, zoom_factor=3, show_crops=True, pdf_file_object=
         # print("making wider")
     base_box = clamp_box_to_image(base_box, image)
 
-    # we have two lists - one to store actual crops of the image, and one to store where the crop came from
-    # storing where each crop came from is necessary for drawing the bounding box of the smallest crop in a larger crop
-    crops = [get_crop(base_box, image)]
-    crop_boxes = [base_box]  # so we can draw the box on the zoomed out images
+    # zoom out ----------------------------
 
     # when zooming out, do so on a square box containing the mask bbox
     # this provides a more standard zoom out in the case the bbox is a weird shape
     square_box = expand_to_aspect_ratio(base_box, 1)
 
-    for z in [1, 2]:
+    for z in [0, 1, 2]:
+        # get crop box, clamped to image
+        box = scale_and_clamp_box(square_box, image, zoom_factor**z)
+        overlay_box = None if z == 0 else base_box
+        
+        # take crop and save to file
+        image_basename = os.path.basename(image_path)
+        save_path = os.path.join(save_directory, f"{image_basename}_zoom{z}.png")
+        save_crop(box, image, save_path, overlay_box)
+
         # stop zooming out if we're nearing the image dimensions
         # if the max dimension is almost the whole image, we hit image size
         # if the min dimension is an appreciable fraction, the next zoom won't do much
-        x_frac = crops[-1].shape[1] / image.shape[1]
-        y_frac = crops[-1].shape[0] / image.shape[0]
-        if len(crops) > 0 and (min(x_frac, y_frac) > 0.5 or max(x_frac, y_frac) > 0.8):
+        x_frac = box[2] / image.shape[1]
+        y_frac = box[3] / image.shape[0]
+        if min(x_frac, y_frac) > 0.5 or max(x_frac, y_frac) > 0.8:
             break
 
-        box = scale_and_clamp_box(square_box, image, zoom_factor**z)
-        crops.append(get_crop(box, image))
-        crop_boxes.append(box)
 
-    # plot
-    pdf_fig, pdf_axes = plt.subplots(nrows=1, ncols=len(crops), figsize=(9, 3))
-    for k, crop in enumerate(crops):
-        pdf_axes[k].imshow(crop)
-        pdf_axes[k].axis("off")
+def save_crop(box, image, save_path, overlay_box=None, padding_frac=0):
+    # box and overlay_box is array formatted XYWH
+    # box is allowed to be outside the image bounds, this function will clamp
 
-        # show bounding box if this is a zoom out image
-        if k >= 1:
-            x = base_box[0] - crop_boxes[k][0]
-            y = base_box[1] - crop_boxes[k][1]
-            pdf_axes[k].add_patch(plt.Rectangle((x, y), base_box[2], base_box[3], edgecolor='red', facecolor=(0, 0, 0, 0), lw=2))
-            
-    pdf_fig.tight_layout()
-    if pdf_file_object is not None:
-        pdf_fig.savefig(pdf_file_object, format='pdf')
+    x_pad = int(np.round(box[2] * padding_frac))
+    y_pad = int(np.round(box[3] * padding_frac))
+
+    x1 = max(0, box[0] - x_pad)
+    x2 = min(image.shape[1], box[0] + box[2] + 2*x_pad)
+    y1 = max(0, box[1] - y_pad)
+    y2 = min(image.shape[0], box[1] + box[3] + 2*y_pad)
+    crop = image[y1:y2, x1:x2]
+
+    # convert to bgr for use with cv2
+    crop = cv2.cvtColor(crop, cv2.COLOR_RGB2BGR)
+
+    # add overlay
+    if overlay_box is not None:
+        x, y, w, h = overlay_box
+        # translate overlay coords to be relative to this crop
+        x = x - x1
+        y = y - y1
+        line_width = max(1, int(0.002 * crop.shape[0]))
+        cv2.rectangle(crop, (x, y), (x+w, y+h), (0,0,255), thickness=line_width)
     
-    if show_crops:
-        plt.show()
+    cv2.imwrite(save_path, crop)
+
+
+if __name__ == "__main__":
+    image_path = "G:\\.shortcut-targets-by-id\\1BCCfXZq98f4rFOF8m0AweybL4qQakAUB\\Summer Dive 2022\\Monteverde Imagery - Stephanie\\River\\Dry Flight\\100MEDIA\\P0950389.JPG"
+    create_zoom_out_crops(image_path, [3591,1098,1012,850], "./zoom_outputs")
