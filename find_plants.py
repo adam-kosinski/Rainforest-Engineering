@@ -18,17 +18,15 @@ bboxes = process_image("image/path/here", models, show_steps=True, output_json_f
 
 import torch
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 from PIL import Image
 import cv2
 import os
 import json
 import logging
-from contextlib import nullcontext  # for if not saving to pdf
 
-from mobile_sam import sam_model_registry, SamAutomaticMaskGenerator, SamPredictor
-from transformers import AutoImageProcessor, AutoModelForDepthEstimation, CLIPSegProcessor, CLIPSegForImageSegmentation, CLIPProcessor, CLIPModel, SamModel, SamProcessor
+from mobile_sam import sam_model_registry, SamAutomaticMaskGenerator
+from transformers import AutoImageProcessor, AutoModelForDepthEstimation, CLIPSegProcessor, CLIPSegForImageSegmentation, CLIPProcessor, CLIPModel
 
 
 
