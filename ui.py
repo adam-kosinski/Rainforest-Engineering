@@ -43,14 +43,22 @@ class MainWindow(QMainWindow):
         image_layout.addWidget(self.small_image_label)
         main_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
 
+        # Save button at the bottom
+        save_button = QPushButton("SAVE ZOOM SEQUENCES")
+        save_button.setFixedSize(300, 50)
+        save_button.setFont(QFont("Arial", 12))  # Increase font size
+        save_button.clicked.connect(self.save_zoom_sequences)
+
         # Next button at the bottom
-        self.next_button = QPushButton("NEXT")
-        self.next_button.setFont(QFont("Arial", 12))  # Increase font size
-        self.next_button.setStyleSheet("QPushButton { width: 150px; height: 50px; }")  # Increase button size
-        self.next_button.clicked.connect(self.show_next_image)
+        next_button = QPushButton("NEXT")
+        next_button.setFixedSize(150, 50)
+        next_button.setFont(QFont("Arial", 12))  # Increase font size
+        next_button.clicked.connect(self.show_next_image)
+
         button_layout = QHBoxLayout()  # Use horizontal layout for buttons
         button_layout.addStretch(1)  # Add stretchable space before buttons
-        button_layout.addWidget(self.next_button)
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(next_button)
         button_layout.addStretch(1)  # Add stretchable space after buttons
         main_layout.addLayout(button_layout)
 
@@ -58,6 +66,7 @@ class MainWindow(QMainWindow):
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
 
+        # image variables
         self.image_files = []
         self.current_image_index = -1
         self.image_path = ""
@@ -215,6 +224,10 @@ class MainWindow(QMainWindow):
             self.selected_frame_indices.remove(self.hovered_red_frame_index)
         else:
             self.selected_frame_indices.append(self.hovered_red_frame_index)
+    
+    def save_zoom_sequences(self):
+        print("saving")
+        pass
 
 
 if __name__ == "__main__":
