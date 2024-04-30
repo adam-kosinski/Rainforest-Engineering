@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBo
 from PyQt6.QtGui import QPixmap, QFont, QPainter, QPen, QColor, QCursor
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer
 from generate_crops import create_zoom_out_crops
+import threading
 
 IMAGE_DISPLAY_HEIGHT = 450
 
@@ -235,7 +236,9 @@ class MainWindow(QMainWindow):
             if i in self.selected_frame_indices:
                 boxes_to_save.append(box)
 
-        create_zoom_out_crops(self.image_path, boxes_to_save, save_directory)
+        # save images on another thread, so the UI doesn't freeze briefly
+        thread = threading.Thread(target=create_zoom_out_crops, args=(self.image_path, boxes_to_save, save_directory))
+        thread.start()
 
 
 if __name__ == "__main__":
