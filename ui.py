@@ -14,7 +14,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Image Selector")
-        self.resize(1000, 800)  # Set initial window size
+        self.resize(1100, IMAGE_DISPLAY_HEIGHT + 150)  # Set initial window size
 
         main_layout = QVBoxLayout()
 
@@ -42,14 +42,21 @@ class MainWindow(QMainWindow):
         image_layout.addWidget(self.small_image_label)
         main_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
 
-        # Next button at the bottom
+        # Skip button at the bottom
+        skip_button = QPushButton("SKIP")
+        skip_button.setFixedSize(100, 50)
+        skip_button.setFont(QFont("Arial", 12))  # Increase font size
+        skip_button.clicked.connect(lambda: self.show_next_image(save_crops=False))
+
+        # Save and next button at the bottom
         next_button = QPushButton("SAVE AND NEXT")
-        next_button.setFixedSize(300, 50)
+        next_button.setFixedSize(200, 50)
         next_button.setFont(QFont("Arial", 12))  # Increase font size
-        next_button.clicked.connect(self.show_next_image)
+        next_button.clicked.connect(lambda: self.show_next_image(save_crops=True))
 
         button_layout = QHBoxLayout()  # Use horizontal layout for buttons
         button_layout.addStretch(1)  # Add stretchable space before buttons
+        button_layout.addWidget(skip_button)
         button_layout.addWidget(next_button)
         button_layout.addStretch(1)  # Add stretchable space after buttons
         main_layout.addLayout(button_layout)
@@ -160,8 +167,9 @@ class MainWindow(QMainWindow):
         small_pixmap = small_pixmap.scaled(400, IMAGE_DISPLAY_HEIGHT, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
         self.small_image_label.setPixmap(small_pixmap)
 
-    def show_next_image(self):
-        self.save_zoom_sequences()
+    def show_next_image(self, save_crops=True):
+        if save_crops:
+            self.save_zoom_sequences()
 
         self.current_image_index += 1
         if self.current_image_index >= len(self.data):
