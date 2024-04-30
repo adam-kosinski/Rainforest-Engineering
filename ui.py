@@ -43,6 +43,12 @@ class MainWindow(QMainWindow):
         image_layout.addWidget(self.small_image_label)
         main_layout.addLayout(image_layout)  # Add horizontal layout to the main layout
 
+        # Back button
+        back_button = QPushButton("BACK")
+        back_button.setFixedSize(100, 50)
+        back_button.setFont(QFont("Arial", 12))  # Increase font size
+        back_button.clicked.connect(self.show_previous_image)
+
         # Skip button at the bottom
         skip_button = QPushButton("SKIP")
         skip_button.setFixedSize(100, 50)
@@ -56,7 +62,8 @@ class MainWindow(QMainWindow):
         next_button.clicked.connect(lambda: self.show_next_image(save_crops=True))
 
         button_layout = QHBoxLayout()  # Use horizontal layout for buttons
-        button_layout.addStretch(1)  # Add stretchable space before buttons
+        button_layout.addWidget(back_button)
+        button_layout.addSpacing(50)
         button_layout.addWidget(skip_button)
         button_layout.addWidget(next_button)
         button_layout.addStretch(1)  # Add stretchable space after buttons
@@ -171,10 +178,11 @@ class MainWindow(QMainWindow):
     def show_next_image(self, save_crops=True):
         if save_crops:
             self.save_zoom_sequences()
+        self.current_image_index = (self.current_image_index + 1) % len(self.data)
+        self.load_image_info(self.current_image_index)
 
-        self.current_image_index += 1
-        if self.current_image_index >= len(self.data):
-            self.current_image_index = 0
+    def show_previous_image(self):
+        self.current_image_index = (self.current_image_index - 1) % len(self.data)
         self.load_image_info(self.current_image_index)
 
     def track_mouse_position(self):        

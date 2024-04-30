@@ -4,14 +4,18 @@ Some changes:
 - not using dist_to_side factor in the prominence function, doesn't really seem to matter
 - process_image() returns bboxes (for the full res image), visualization is done by functions in generate_crops.py
 
-TO USE IN A JUPYTER NOTEBOOK:
+TO USE:
 
-SETUP MODELS ONCE
+SET UP MODELS ONCE
 from find_plants import load_models, process_image
 models = load_models()
 
 RUN FOR EACH IMAGE
 bboxes = process_image("image/path/here", models, show_steps=True, output_json_file="output.json")
+
+Note - show_steps determines whether to display the intermediate results in matplotlib figures.
+If you are not running this in a notebook, you should use show_steps=False to avoid needing to close these figures.
+Also, setting show_steps=False will save time, because rendering the figures takes a noticeable fraction of the runtime.
 
 """
 
