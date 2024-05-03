@@ -7,3 +7,5 @@ To run the main image processing pipeline for finding plants, you will need an N
 Full installation
 
 Installation on CPU (if only running preprocessing and/or the user interface)
+
+Google Colab
