@@ -32,3 +32,12 @@ In order to open/run jupyter notebooks, you might need to `pip install` some oth
 Same thing, except you probably don't need to install pytorch, since it is by default installed, and also things like matplotlib and pandas are probably already installed.
 
 Feel free to reach out to me (adam.kosinski@duke.edu) if you are struggling to install this code.
+
+
+## How To Run
+
+See the implementation section of the report for a guide to the preprocessing scripts. Sorting images based on flower likelihood is demonstrated in `experiments/flower_search.ipynb`.
+
+The main plant-finding script is `find_plants.py`. See `how_to_run.ipynb` for an example of how to use it.
+
+To launch the user interface, run `python ui.py`.
