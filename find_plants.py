@@ -1,12 +1,13 @@
 """
 This is a one-file implementation of pipeline_v3, for ease of use.
-Some changes:
+There are a few differences from pipeline_v3, added after we copied the code here:
 - not using dist_to_side factor in the prominence function, doesn't really seem to matter
 - process_image() returns bboxes (for the full res image), visualization is done by functions in generate_crops.py
-- display of crops used for CLIP is smaller
+- smaller figure size used to display crops classfied by CLIP
 - deduplicate_bboxes() is different:
     - for iou duplicates, it keeps the earlier-indexed one, to maintain flowers coming early in the bbox list
     - it removes bboxes that are fully contained within a larger bbox (duplicate object in the scene), useful for if lots of tiny sub-objects were found
+      (this often happens when lots of small "flowers" are found within a plant)
 
 TO USE:
 
