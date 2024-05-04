@@ -146,7 +146,7 @@ class MainWindow(QMainWindow):
 
         # Variable storing json data that came from running the pipeline
         self.data = []
-        # self.load_json_file("output.json")
+        self.load_json_file("output.json")
     
     def open_json_file_dialog(self):
         json_file, _ = QFileDialog.getOpenFileName(self, "Select JSON File From Pipeline Output", "", "JSON Files (*.json)")
@@ -170,25 +170,33 @@ class MainWindow(QMainWindow):
             self.save_directory_label.setText(f"Output directory -- {self.save_directory}")
 
     def load_image_info(self, index):
-        if index < len(self.data):
-            image_info = self.data[index]
-            self.image_path = image_info["image_path"]
-            self.image_pixmap = QPixmap(image_info["image_path"])
+        if index < 0 or index >= len(self.data):
+            return
+        
+        # always update image info regardless of if image exists
+        self.current_image_index = index
+        image_info = self.data[index]
+        self.image_path = image_info["image_path"]
+        self.image_name_label.setText(f"Current image: {os.path.basename(image_info['image_path'])}")
+        self.image_pixmap = QPixmap(image_info["image_path"])
 
-            # load bounding boxes (aka red frames) both at original scale and at display scale
-            # display scale will be used for drawing, and comparison with the mouse position
-            self.red_frame_params = image_info["bboxes"][:5]
-            original_image_height = self.image_pixmap.height()
-            rescale_func = lambda x: int(x * IMAGE_DISPLAY_HEIGHT / original_image_height)
-            self.display_red_frame_params = list(map(lambda box: list(map(rescale_func, box)), self.red_frame_params))
+        # make sure image still exists
+        if not os.path.exists(self.data[index]["image_path"]):
+            self.image_label.setText("Image not found, have you moved/renamed it?")
+            return
+        
+        # load bounding boxes (aka red frames) both at original scale and at display scale
+        # display scale will be used for drawing, and comparison with the mouse position
+        self.red_frame_params = image_info["bboxes"][:5]
+        original_image_height = self.image_pixmap.height()
+        rescale_func = lambda x: int(x * IMAGE_DISPLAY_HEIGHT / original_image_height)
+        self.display_red_frame_params = list(map(lambda box: list(map(rescale_func, box)), self.red_frame_params))
 
-            # by default, all frames are selected
-            self.selected_frame_indices = list(range(len(self.red_frame_params)))
+        # by default, all frames are selected
+        self.selected_frame_indices = list(range(len(self.red_frame_params)))
 
-            self.current_image_index = index
-            self.image_name_label.setText(f"Current image: {os.path.basename(self.image_path)}")
-            self.update_progress_bar()
-            self.show_image()
+        self.update_progress_bar()
+        self.show_image()
 
     def update_progress_bar(self):
         if self.data:
@@ -197,42 +205,47 @@ class MainWindow(QMainWindow):
             self.progress_bar.setFormat(f"Image {self.current_image_index + 1}/{len(self.data)}")
 
     def show_image(self):
-        if self.current_image_index >= 0 and self.current_image_index < len(self.data):
-            # rescale image to a reasonable display height
-            image_pixmap = self.image_pixmap.scaledToHeight(IMAGE_DISPLAY_HEIGHT, Qt.TransformationMode.SmoothTransformation)
+        if not os.path.exists(self.data[self.current_image_index]["image_path"]):
+            return
+        
+        if self.current_image_index < 0 or self.current_image_index >= len(self.data):
+            return
+        
+        # rescale image to a reasonable display height
+        image_pixmap = self.image_pixmap.scaledToHeight(IMAGE_DISPLAY_HEIGHT, Qt.TransformationMode.SmoothTransformation)
 
-            # Create an overlay pixmap that darkens the non selected areas
-            overlay_pixmap = QPixmap(image_pixmap.size())
-            overlay_pixmap.fill(QColor(0, 0, 0, 170))
-            overlay_painter = QPainter(overlay_pixmap)
-            # change composition mode and opacity so that new rects will be drawn transparent and replace existing pixels
-            overlay_painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
-            overlay_painter.setOpacity(0.0)
-            for i, (x,y,w,h) in enumerate(self.display_red_frame_params):
-                if i in self.selected_frame_indices:
-                    overlay_painter.fillRect(x, y, w, h, Qt.GlobalColor.black)
-            overlay_painter.end()
+        # Create an overlay pixmap that darkens the non selected areas
+        overlay_pixmap = QPixmap(image_pixmap.size())
+        overlay_pixmap.fill(QColor(0, 0, 0, 170))
+        overlay_painter = QPainter(overlay_pixmap)
+        # change composition mode and opacity so that new rects will be drawn transparent and replace existing pixels
+        overlay_painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Source)
+        overlay_painter.setOpacity(0.0)
+        for i, (x,y,w,h) in enumerate(self.display_red_frame_params):
+            if i in self.selected_frame_indices:
+                overlay_painter.fillRect(x, y, w, h, Qt.GlobalColor.black)
+        overlay_painter.end()
 
-            # Use a QPainter to draw on the pixmap, draw the image and the darkener overlay
-            display_pixmap = QPixmap(image_pixmap.size())
-            painter = QPainter(display_pixmap)
-            painter.drawPixmap(display_pixmap.rect(), image_pixmap, image_pixmap.rect())
-            painter.drawPixmap(display_pixmap.rect(), overlay_pixmap, overlay_pixmap.rect())
-            # Draw red frames
-            for i, frame_params in enumerate(self.display_red_frame_params):
-                # determine which pen to use - different for hovering, selected, and deselected
-                if i == self.hovered_red_frame_index:
-                    pen = QPen(QColor("orange"), 4)
-                elif i in self.selected_frame_indices:
-                    pen = QPen(QColor("red"), 2)
-                else:
-                    pen = QPen(QColor("red"), 2, Qt.PenStyle.DotLine)
-                painter.setPen(pen)
-                painter.drawRect(*frame_params)
-            painter.end()
+        # Use a QPainter to draw on the pixmap, draw the image and the darkener overlay
+        display_pixmap = QPixmap(image_pixmap.size())
+        painter = QPainter(display_pixmap)
+        painter.drawPixmap(display_pixmap.rect(), image_pixmap, image_pixmap.rect())
+        painter.drawPixmap(display_pixmap.rect(), overlay_pixmap, overlay_pixmap.rect())
+        # Draw red frames
+        for i, frame_params in enumerate(self.display_red_frame_params):
+            # determine which pen to use - different for hovering, selected, and deselected
+            if i == self.hovered_red_frame_index:
+                pen = QPen(QColor("orange"), 4)
+            elif i in self.selected_frame_indices:
+                pen = QPen(QColor("red"), 2)
+            else:
+                pen = QPen(QColor("red"), 2, Qt.PenStyle.DotLine)
+            painter.setPen(pen)
+            painter.drawRect(*frame_params)
+        painter.end()
 
-            # Display image with red frames drawn
-            self.image_label.setPixmap(display_pixmap)
+        # Display image with red frames drawn
+        self.image_label.setPixmap(display_pixmap)
 
     def show_zoom_in_image(self, red_frame_index):
         # If no index, clear the small image
@@ -259,6 +272,9 @@ class MainWindow(QMainWindow):
         self.load_image_info((self.current_image_index - 1) % len(self.data))
 
     def track_mouse_position(self):
+        if not os.path.exists(self.data[self.current_image_index]["image_path"]):
+            return
+                
         # Get mouse position (relative to the big image)
         self.mouse_position = self.image_label.mapFromGlobal(QCursor.pos())
 
