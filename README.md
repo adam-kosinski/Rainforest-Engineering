@@ -17,17 +17,13 @@ conda create --name plant_id python=3.10
 conda activate plant_id
 conda install pytorch torchvision pytorch-cuda=11.8 -c pytorch -c nvidia
 
-pip install matplotlib==3.8.0 opencv-python==4.9.0.80 scikit-learn==1.4.2 scikit-image==0.23.2 pandas==2.2.2 PyQt6==6.6.1
-
-pip install timm==0.9.16
+pip install matplotlib==3.8.0 opencv-python==4.9.0.80 scikit-learn==1.4.2 scikit-image==0.23.2 pandas==2.2.2 PyQt6==6.6.1 timm==0.9.16
 ```
-Install from source to avoid bugs:
+Install these from source to avoid bugs:
 ```
 pip install git+https://github.com/huggingface/transformers
 pip install git+https://github.com/ChaoningZhang/MobileSAM.git
 ```
-
-Create a `./weights` directory in the root of the repository. 
 
 In order to open/run jupyter notebooks, you might need to `pip install` some other stuff, but this may depend on your computer's setup. Try to run the notebook and if it doesn't let you, install what it tells you to.
 
